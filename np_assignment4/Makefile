@@ -3,11 +3,7 @@ CC_FLAGS = -w -g
 
 
 
-all: test client server
-
-
-main.o: main.c
-	$(CC) -Wall -I. -c main.c
+all: client server
 
 client.o: client.c
 	$(CC) -Wall -I. -c client.c
@@ -15,16 +11,12 @@ client.o: client.c
 server.o: server.c
 	$(CC) -Wall -I. -c server.c
 
-test: main.o
-	$(CC) -I./ -Wall -lncurses -o test main.o 
-
-
 client: client.o
-	$(CC) -Wall -pthread -o cchat client.o -lncurses
+	$(CC) -Wall -pthread -o sspgame client.o
 
 server: server.o
-	$(CC) -Wall -pthread -o cserverd server.o
+	$(CC) -Wall -pthread -o sspd server.o
 
 
 clean:
-	rm *.o test cserverd cchat
+	rm *.o sspd sspgame
