@@ -12,6 +12,7 @@
 #include <pthread.h>
 
 static int uid = 1;
+int counter = 0;
 
 void printIpAddr(struct sockaddr_in addr)
 {
@@ -28,10 +29,63 @@ typedef struct
   struct sockaddr_in address;
   int clientSock;
   int uid;
-  char message[255];
+  int isPlaying;
+  char message[10];
 } clientDetails;
 
+clientDetails *clients[10];
+
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void add_client(clientDetails *client)
+{
+  pthread_mutex_lock(&clients_mutex);
+  for(int i = 0; i < 10; i++)
+  {
+    if(!clients[i])
+    {
+      clients[i] = client;
+      counter++;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&clients_mutex);
+}
+
+void remove_client(int uid)
+{
+  pthread_mutex_lock(&clients_mutex);
+  for(int i = 0; i < 10; i++)
+  {
+    if(clients[i])
+    {
+      if(clients[i]->uid == uid)
+      {
+        clients[i] == NULL;
+        counter--;
+        break;
+      }
+    }
+  }
+  pthread_mutex_unlock(&clients_mutex);
+}
+
+void send_message(char *message)
+{
+  pthread_mutex_lock(&clients_mutex);
+  for(int i = 0; i < 10; i++)
+  {
+    if(clients[i])
+    {
+      if(write(clients[i]->clientSock, message, strlen(message)) == -1)
+      {
+        printf("Error while sending message to client.\n");
+        break;
+      }
+    }
+  }
+  pthread_mutex_unlock(&clients_mutex);
+}
 
 void *handle_client(void *arg)
 {
@@ -59,8 +113,7 @@ void *handle_client(void *arg)
     }
   }
   close(currentClient->clientSock);
-  //Remove client if 0
-
+  remove_client(currentClient);
   free(currentClient);
   pthread_detach(pthread_self());
 
@@ -165,14 +218,23 @@ int main(int argc, char *argv[])
       perror("Accept failed!\n");
     }
 
-    printIpAddr(clientAddr);
+    if ((counter + 1) == 10)
+    {
+      printf("Maximum clients already connected\n");
+      close(clientSock);
+      continue;
+    }
 
+    //Adding client details to currentClient
+    printIpAddr(clientAddr);
     clientDetails *currentClient = (clientDetails *)malloc(sizeof(clientDetails));
     memset(currentClient, 0, sizeof(clientDetails));
     currentClient->address = clientAddr;
     currentClient->clientSock = clientSock;
     currentClient->uid = uid++;
 
+    //Adding client to the array
+    add_client(currentClient);
     pthread_create(&tid, NULL, &handle_client, (void *)currentClient);
   }
 
