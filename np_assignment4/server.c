@@ -61,7 +61,7 @@ void remove_client(int uid)
     {
       if(clients[i]->uid == uid)
       {
-        clients[i] == NULL;
+        clients[i] = NULL;
         counter--;
         break;
       }
@@ -87,13 +87,19 @@ void send_message(char *message)
   pthread_mutex_unlock(&clients_mutex);
 }
 
+int check_if_game_can_start()
+{
+  
+}
+
 void *handle_client(void *arg)
 {
   char protocol[20];
-  char okOrError[20];
+  char menuMessage[100];
   memset(protocol, 0, 20);
   strcpy(protocol, "RPS TCP 1\n");
   int leave_flag = 0;
+  int sendMenu = 0;
 
   clientDetails *currentClient = (clientDetails *)arg;
 
@@ -105,15 +111,37 @@ void *handle_client(void *arg)
     leave_flag = 1;
   }
 
+  if(leave_flag != 1)
+  {
+    printf("Sending to menu\n");
+    memset(menuMessage, 0, 100);
+    strcpy(menuMessage, "Please select:\n1. Play\n2. Watch\n0. Exit\n");
+  }
+
   while (1)
   {
     if (leave_flag)
     {
       break;
     }
+    else if(sendMenu == 0)
+    {
+      if((send(currentClient->clientSock, &menuMessage, sizeof(menuMessage), 0)) == -1)
+      {
+        printf("Send failed!\n");
+        leave_flag = 1;
+      }
+      else
+      {
+        sendMenu = 1;
+      }
+
+      //Take in message, if exit then leave_flag = 1 and break.
+    }
+    
   }
   close(currentClient->clientSock);
-  remove_client(currentClient);
+  remove_client(currentClient->uid);
   free(currentClient);
   pthread_detach(pthread_self());
 

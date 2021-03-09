@@ -79,8 +79,8 @@ void send_msg_handler(void *arg)
     memset(tempMessage, 0, 255);
     memset(message, 0, 1000);
     fgets(tempMessage, 255, stdin);
-    flushinp();
-    sprintf(message, "MSG %s: %s", tempMessage);
+    //flushinp();
+    //sprintf(message, "MSG %s: %s", tempMessage);
     if (strcmp(message, "\n") != 0 && strlen(message) <= 238)
     {
       int response = send(*socket, &message, 255, 0);
