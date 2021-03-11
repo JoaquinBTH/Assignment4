@@ -39,8 +39,11 @@ typedef struct
   int uid;
   int inQueue;
   int isPlaying;
+  int hasRecievedReadyMessage;
   int isSpectating;
   int option;
+  int leave_flag;
+  int sendMenu;
   char message[10];
 } clientDetails;
 
@@ -103,7 +106,7 @@ void send_message(char *message, int index)
     }
     else
     {
-      if (clients[index]->isPlaying == 3)
+      if (clients[index]->isPlaying >= 1)
       {
         if (write(clients[index]->clientSock, message, strlen(message)) == -1)
         {
@@ -131,26 +134,27 @@ void send_message(char *message, int index)
 
 int check_if_game_can_start()
 {
-  int firstClient = -1;
-  int secondClient = -1;
+  clientOne = -1;
+  clientTwo = -1;
   for (int i = 0; i < counter; i++)
   {
-    if (clients[i]->inQueue >= 1 && firstClient == -1)
+    if (clients[i]->inQueue >= 1 && clientOne == -1)
     {
-      firstClient = i;
+      clientOne = i;
     }
-    else if (clients[i]->inQueue >= 1 && firstClient != i && secondClient == -1)
+    else if (clients[i]->inQueue >= 1 && clientOne != i && clientTwo == -1)
     {
-      secondClient = i;
+      clientTwo = i;
     }
   }
 
-  if (firstClient != -1 && secondClient != -1)
+  if (clientOne != -1 && clientTwo != -1)
   {
-    clients[firstClient]->isPlaying = 1;
-    clients[firstClient]->inQueue = 0;
-    clients[secondClient]->isPlaying = 1;
-    clients[secondClient]->inQueue = 0;
+    clients[clientOne]->isPlaying = 1;
+    clients[clientOne]->inQueue = 0;
+    clients[clientTwo]->isPlaying = 1;
+    clients[clientTwo]->inQueue = 0;
+    printf("ClientOne %d\nClientTwo %d\n", clientOne, clientTwo);
     gameStarted = 1;
     return 1;
   }
@@ -168,52 +172,18 @@ void play_game(int sectionOfGame)
 
   if (sectionOfGame == 1)
   {
-    char ready[20];
-    memset(ready, 0, 20);
     strcpy(message, "A game is ready, press \"Enter\" to accept\n");
-    strcpy(ready, "You are now ready!\n");
-    send_message(message, -1);
-    for (int i = 0; i < counter; i++)
-    {
-      if (clients[i]->isPlaying == 1)
-      {
-        clients[i]->isPlaying = 2;
-      }
-    }
-
-    for (int i = 0; i < counter; i++)
-    {
-      if (clients[i]->isPlaying == 2)
-      {
-        if ((recv(clients[i]->clientSock, &clients[i]->message, sizeof(clients[i]->message), 0)) == -1)
-        {
-          printf("Error\n");
-        }
-        else
-        {
-          if ((send(clients[i]->clientSock, &ready, sizeof(ready), 0)) == -1)
-          {
-            printf("Error\n");
-          }
-          else
-          {
-            if (clientOne == -1)
-            {
-              clientOne = i;
-            }
-            else
-            {
-              clientTwo = i;
-            }
-          }
-        }
-      }
-    }
-    printf("ClientOne %d\nClientTwo %d\n", clientOne, clientTwo);
+    send_message(message, clientOne);
+    send_message(message, clientTwo);
+    printf("Sent messages!\n");
+    clients[clientOne]->hasRecievedReadyMessage = 1;
+    clients[clientTwo]->hasRecievedReadyMessage = 1;
   }
 
   if (sectionOfGame == 2)
   {
+    clients[clientOne]->hasRecievedReadyMessage = 2;
+    clients[clientTwo]->hasRecievedReadyMessage = 2;
     struct timeval timer, compare;
     int roundMessage = 0;
 
@@ -244,8 +214,6 @@ void play_game(int sectionOfGame)
       }
       else if (roundMessage == 3 && (compare.tv_sec - timer.tv_sec) >= 3)
       {
-        clients[clientOne]->isPlaying = 3;
-        clients[clientTwo]->isPlaying = 3;
         memset(message, 0, 100);
         sprintf(message, "Round %d\n", currentRound);
         send_message(message, 100);
@@ -256,28 +224,18 @@ void play_game(int sectionOfGame)
         roundMessage++;
         currentRound++;
         gettimeofday(&timerL, NULL);
+        clients[clientOne]->isPlaying = 3;
+        clients[clientTwo]->isPlaying = 3;
+        clients[clientOne]->option = 0;
+        clients[clientTwo]->option = 0;
       }
     }
   }
 
-  if (sectionOfGame == 3)
+  if (sectionOfGame == 3 && clients[clientOne]->hasRecievedReadyMessage == 2 && clients[clientTwo]->hasRecievedReadyMessage == 2)
   {
-    int optionClientOne = 0;
-    int optionClientTwo = 0;
-    for (int i = 0; i < counter; i++)
-    {
-      if (clients[i]->isPlaying == 3)
-      {
-        if (optionClientOne == 0)
-        {
-          optionClientOne = clients[i]->option;
-        }
-        else
-        {
-          optionClientTwo = clients[i]->option;
-        }
-      }
-    }
+    int optionClientOne = clients[clientOne]->option;
+    int optionClientTwo = clients[clientTwo]->option;
 
     if (optionClientOne == 0 && optionClientTwo == 0)
     {
@@ -352,6 +310,8 @@ void play_game(int sectionOfGame)
     send_message(message, clientTwo);
     clients[clientOne]->isPlaying = 2;
     clients[clientOne]->isPlaying = 2;
+    clients[clientOne]->hasRecievedReadyMessage = 1;
+    clients[clientOne]->hasRecievedReadyMessage = 1;
   }
 }
 
@@ -362,20 +322,18 @@ void *handle_client(void *arg)
   char anyMessage[100];
   memset(protocol, 0, 20);
   strcpy(protocol, "RPS TCP 1\n");
-  int leave_flag = 0;
-  int sendMenu = 0;
 
   clientDetails *currentClient = (clientDetails *)arg;
 
   //Send Protocol
   printf("Server protocol: %s", protocol);
-  if ((send(currentClient->clientSock, &protocol, sizeof(protocol), 0)) == -1)
+  if ((send(currentClient->clientSock, protocol, strlen(protocol), 0)) == -1)
   {
     printf("Send failed!\n");
-    leave_flag = 1;
+    currentClient->leave_flag = 1;
   }
 
-  if (leave_flag != 1)
+  if (currentClient->leave_flag != 1)
   {
     printf("Sending to menu\n");
     memset(menuMessage, 0, 100);
@@ -384,60 +342,25 @@ void *handle_client(void *arg)
 
   while (1)
   {
-    if (leave_flag)
+    if (currentClient->leave_flag)
     {
       break;
     }
-    else if (sendMenu == 0)
+    else if (currentClient->sendMenu == 0)
     {
-      if ((send(currentClient->clientSock, &menuMessage, sizeof(menuMessage), 0)) == -1)
+      if ((send(currentClient->clientSock, menuMessage, strlen(menuMessage), 0)) == -1)
       {
         printf("Send failed!\n");
-        leave_flag = 1;
+        currentClient->leave_flag = 1;
         break;
       }
       else
       {
-        sendMenu = 1;
+        currentClient->sendMenu = 1;
       }
     }
 
-    if (leave_flag == 0 && sendMenu == 1 && currentClient->inQueue == 0 && currentClient->isPlaying == 0 && currentClient->isSpectating == 0)
-    {
-      //Take in message, if exit then leave_flag = 1 and break.
-      if ((recv(currentClient->clientSock, &currentClient->message, sizeof(currentClient->message), 0)) == -1)
-      {
-        printf("Recieve failed!\n");
-        leave_flag = 1;
-        break;
-      }
-      else
-      {
-        if (strcmp(currentClient->message, "1\n") == 0)
-        {
-          currentClient->inQueue = 1;
-          printf("Recieved: 1\n");
-        }
-        else if (strcmp(currentClient->message, "2\n") == 0)
-        {
-          currentClient->isSpectating = 0;
-          printf("Recieved: 2\n");
-        }
-        else if (strcmp(currentClient->message, "0\n") == 0)
-        {
-          printf("Recieved: 0\n");
-          leave_flag = 1;
-          break;
-        }
-        else
-        {
-          printf("Wrong message recieved, trying again\n");
-          sendMenu = 0;
-          memset(currentClient->message, 0, 10);
-        }
-      }
-    }
-    else if (leave_flag == 0 && sendMenu == 1 && currentClient->inQueue >= 1 && currentClient->isPlaying == 0 && currentClient->isSpectating == 0 && gameStarted == 0)
+    if (currentClient->leave_flag == 0 && currentClient->sendMenu == 1 && currentClient->inQueue >= 1 && currentClient->isPlaying == 0 && currentClient->isSpectating == 0 && gameStarted == 0)
     {
       if (check_if_game_can_start() == 1)
       {
@@ -447,10 +370,10 @@ void *handle_client(void *arg)
       {
         memset(anyMessage, 0, 100);
         strcpy(anyMessage, "One more player required to start game\nPress \"Enter\" to leave the queue\n");
-        if ((send(currentClient->clientSock, &anyMessage, sizeof(anyMessage), 0)) == -1)
+        if ((send(currentClient->clientSock, anyMessage, strlen(anyMessage), 0)) == -1)
         {
           printf("Send failed!\n");
-          leave_flag = 1;
+          currentClient->leave_flag = 1;
           break;
         }
         else
@@ -458,69 +381,60 @@ void *handle_client(void *arg)
           currentClient->inQueue = 2;
         }
       }
-      else if (currentClient->inQueue == 2)
-      {
-        memset(currentClient->message, 0, 10);
-        if ((recv(currentClient->clientSock, &currentClient->message, sizeof(currentClient->message), 0)) == -1)
-        {
-          printf("Recieve failed!\n");
-          leave_flag = 1;
-          break;
-        }
-        else if (strcmp(currentClient->message, "\n") == 0 && currentClient->inQueue >= 1 && currentClient->isPlaying == 0)
-        {
-          currentClient->inQueue = 0;
-          sendMenu = 0;
-        }
-        else
-        {
-          memset(currentClient->message, 0, 10);
-        }
-      }
     }
-    else if (leave_flag == 0 && sendMenu == 1 && currentClient->inQueue == 0 && currentClient->isPlaying == 1 && currentClient->isSpectating == 0 && gameStarted == 1)
+    else if (currentClient->leave_flag == 0 && currentClient->sendMenu == 1 && currentClient->inQueue == 0 && currentClient->isPlaying == 1 && currentClient->isSpectating == 0 && gameStarted == 1)
     {
-      play_game(currentClient->isPlaying);
-
-      struct timeval compareL;
       while (scoreFirstClient < 3 && scoreSecondClient < 3)
       {
-        play_game(currentClient->isPlaying);
-        gettimeofday(&compareL, NULL);
-        memset(currentClient->message, 0, 10);
-        if ((compareL.tv_sec - timerL.tv_sec) <= 2) //This line is not working properly...
+        if (currentClient->clientSock == clients[clientOne]->clientSock)
         {
-          if ((recv(currentClient->clientSock, &currentClient->message, sizeof(currentClient->message), 0)) == -1)
+          while (clients[clientOne]->isPlaying != 2 && clients[clientTwo]->isPlaying != 2)
           {
-            printf("Recieve failed!\n");
+            if (currentClient->isPlaying == 1 && currentClient->hasRecievedReadyMessage == 0)
+            {
+              play_game(currentClient->isPlaying);
+            }
           }
-          if (strcmp(currentClient->message, "1\n") == 0)
+          while (clients[clientOne]->isPlaying != 3 && clients[clientTwo]->isPlaying != 3)
           {
-            printf("Changes option to 1\n");
-            currentClient->option = 1;
+            if (currentClient->isPlaying == 2 && currentClient->hasRecievedReadyMessage == 1)
+            {
+              play_game(currentClient->isPlaying);
+            }
           }
-          else if (strcmp(currentClient->message, "2\n") == 0)
-          {
-            printf("Changes option to 2\n");
-            currentClient->option = 2;
-          }
-          else if (strcmp(currentClient->message, "3\n") == 0)
-          {
-            printf("Changes option to 3\n");
-            currentClient->option = 3;
-          }
-        }
-        else
-        {
-          printf("Changes option to 0\n");
-          currentClient->option = 0;
-          gettimeofday(&timerL, NULL);
         }
       }
+      //struct timeval compareL;
+      /*while (scoreFirstClient < 3 && scoreSecondClient < 3)
+      {
+        if (currentClient->clientSock == clients[clientOne]->clientSock)
+        {
+          if (currentClient->isPlaying == 2 && currentClient->hasRecievedReadyMessage == 1)
+          {
+            play_game(currentClient->isPlaying);
+          }
+        }
+        /*else if (clients[clientOne]->isPlaying == 3 && clients[clientTwo]->isPlaying == 3 && currentClient->hasRecievedReadyMessage == 2)
+        {
+          gettimeofday(&compareL, NULL);
+          if ((compareL.tv_sec - timerL.tv_sec) + ((compareL.tv_usec - timerL.tv_usec) / 1000000) < 2)
+          {
+            if (clients[clientOne]->option != 0 && clients[clientTwo]->option != 0)
+            {
+              play_game(currentClient->isPlaying);
+            }
+          }
+          else
+          {
+            play_game(currentClient->isPlaying);
+          }
+        }*/
+      //}
+      printf("Continuing the loop\n");
     }
   }
-  close(currentClient->clientSock);
   remove_client(currentClient->uid);
+  close(currentClient->clientSock);
   free(currentClient);
   pthread_detach(pthread_self());
 
@@ -612,6 +526,14 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
+  //Trying to make select work
+  fd_set current_sockets, ready_sockets;
+
+  //Initialize current set
+  FD_ZERO(&current_sockets);
+  FD_SET(serverSock, &current_sockets);
+  int fdmax = serverSock;
+
   struct sockaddr_in clientAddr;
   socklen_t client_size = sizeof(clientAddr);
 
@@ -619,34 +541,155 @@ int main(int argc, char *argv[])
 
   while (1)
   {
-    clientSock = accept(serverSock, (struct sockaddr *)&clientAddr, &client_size);
-    if (clientSock == -1)
+    //Select stuff
+    ready_sockets = current_sockets;
+
+    if (select(fdmax + 1, &ready_sockets, NULL, NULL, NULL) < 0)
     {
-      perror("Accept failed!\n");
+      perror("select failed!\n");
+      exit(1);
     }
 
-    if ((counter + 1) == 10)
+    for (int i = serverSock; i < (fdmax + 1); i++)
     {
-      printf("Maximum clients already connected\n");
-      close(clientSock);
-      continue;
+      if (FD_ISSET(i, &ready_sockets))
+      {
+        if (i == serverSock)
+        {
+          //This is a new connection
+          clientSock = accept(serverSock, (struct sockaddr *)&clientAddr, &client_size);
+          if (clientSock == -1)
+          {
+            perror("Accept failed!\n");
+          }
+          else
+          {
+            if (clientSock > fdmax)
+            {
+              fdmax = clientSock;
+            }
+          }
+
+          if ((counter + 1) == 10)
+          {
+            printf("Maximum clients already connected\n");
+            close(clientSock);
+            continue;
+          }
+          FD_SET(clientSock, &current_sockets);
+
+          //Adding client details to currentClient
+          printIpAddr(clientAddr);
+          clientDetails *currentClient = (clientDetails *)malloc(sizeof(clientDetails));
+          memset(currentClient, 0, sizeof(clientDetails));
+          currentClient->address = clientAddr;
+          currentClient->clientSock = clientSock;
+          currentClient->inQueue = 0;
+          currentClient->isPlaying = 0;
+          currentClient->hasRecievedReadyMessage = 0;
+          currentClient->isSpectating = 0;
+          currentClient->option = 0;
+          currentClient->sendMenu = 0;
+          currentClient->leave_flag = 0;
+          currentClient->uid = uid++;
+
+          //Adding client to the array
+          add_client(currentClient);
+          pthread_create(&tid, NULL, &handle_client, (void *)currentClient);
+        }
+        else
+        {
+          int index;
+          for (int j = 0; j < counter; j++)
+          {
+            if (clients[j]->clientSock == i)
+            {
+              index = j;
+            }
+          }
+          memset(clients[index]->message, 0, 10);
+          if ((read(clients[index]->clientSock, &clients[index]->message, sizeof(clients[index]->message))) == -1)
+          {
+            printf("Recieve failed!\n");
+          }
+          if (clients[index]->leave_flag == 0 && clients[index]->sendMenu == 1 && clients[index]->inQueue == 0 && clients[index]->isPlaying == 0 && clients[index]->isSpectating == 0)
+          {
+            if (strcmp(clients[index]->message, "1\n") == 0)
+            {
+              clients[index]->inQueue = 1;
+              printf("Recieved: 1\n");
+            }
+            else if (strcmp(clients[index]->message, "2\n") == 0)
+            {
+              clients[index]->isSpectating = 1;
+              printf("Recieved: 2\n");
+            }
+            else if (strcmp(clients[index]->message, "") == 0)
+            {
+              //Do nothing
+            }
+            else if (strcmp(clients[index]->message, "0\n") == 0)
+            {
+              printf("Recieved: 0\n");
+              clients[index]->leave_flag = 1;
+            }
+            else
+            {
+              clients[index]->sendMenu = 0;
+            }
+          }
+          else if (clients[index]->leave_flag == 0 && clients[index]->sendMenu == 1 && clients[index]->inQueue >= 1 && clients[index]->isPlaying == 0 && clients[index]->isSpectating == 0 && gameStarted == 0)
+          {
+            if (strcmp(clients[index]->message, "\n") == 0 && clients[index]->inQueue >= 1 && clients[index]->isPlaying == 0)
+            {
+              clients[index]->inQueue = 0;
+              clients[index]->sendMenu = 0;
+            }
+            else if (strcmp(clients[index]->message, "") == 0)
+            {
+              //Do nothing
+            }
+          }
+          else if (clients[index]->leave_flag == 0 && clients[index]->sendMenu == 1 && clients[index]->inQueue == 0 && clients[index]->isPlaying == 1 && clients[index]->isSpectating == 0 && gameStarted == 1)
+          {
+            if (strcmp(clients[index]->message, "\n") == 0)
+            {
+              char ready[20];
+              memset(ready, 0, 20);
+              strcpy(ready, "You are now ready!\n");
+              clients[index]->isPlaying = 2;
+              memset(clients[index]->message, 0, 10);
+              if ((send(clients[index]->clientSock, ready, strlen(ready), 0)) == -1)
+              {
+                printf("Error\n");
+              }
+            }
+            else if (strcmp(clients[index]->message, "") == 0)
+            {
+              //Do nothing
+            }
+          }
+          else if (clients[index]->leave_flag == 0 && clients[index]->sendMenu == 1 && clients[index]->inQueue == 0 && clients[index]->isPlaying == 3 && clients[index]->isSpectating == 0 && gameStarted == 1)
+          {
+            if (strcmp(clients[index]->message, "1\n") == 0)
+            {
+              clients[index]->option = 1;
+              printf("Changes option to: 1\n");
+            }
+            else if (strcmp(clients[index]->message, "2\n") == 0)
+            {
+              clients[index]->option = 2;
+              printf("Changes option to: 2\n");
+            }
+            else if (strcmp(clients[index]->message, "3\n") == 0)
+            {
+              clients[index]->option = 3;
+              printf("Changes option to: 3\n");
+            }
+          }
+        }
+      }
     }
-
-    //Adding client details to currentClient
-    printIpAddr(clientAddr);
-    clientDetails *currentClient = (clientDetails *)malloc(sizeof(clientDetails));
-    memset(currentClient, 0, sizeof(clientDetails));
-    currentClient->address = clientAddr;
-    currentClient->clientSock = clientSock;
-    currentClient->inQueue = 0;
-    currentClient->isPlaying = 0;
-    currentClient->isSpectating = 0;
-    currentClient->option = 0;
-    currentClient->uid = uid++;
-
-    //Adding client to the array
-    add_client(currentClient);
-    pthread_create(&tid, NULL, &handle_client, (void *)currentClient);
   }
   close(serverSock);
   return 0;
